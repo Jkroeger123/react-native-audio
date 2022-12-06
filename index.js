@@ -6,14 +6,13 @@ import ReactNative, {
   NativeModules,
   NativeAppEventEmitter,
   DeviceEventEmitter,
-  PermissionsAndroid,
   Platform
 } from "react-native";
 
 var AudioRecorderManager = NativeModules.AudioRecorderManager;
 
 var AudioRecorder = {
-  prepareRecordingAtPath: function(path, options) {
+  prepareStreamingAtPath: function(path, bufferSize=8192, options, vadOptions) {
     if (this.progressSubscription) this.progressSubscription.remove();
     this.progressSubscription = NativeAppEventEmitter.addListener('recordingProgress',
       (data) => {
@@ -32,72 +31,80 @@ var AudioRecorder = {
       }
     );
 
+    if (this.dataReceivedSubscription) this.dataReceivedSubscription.remove();
+    this.dataReceivedSubscription = NativeAppEventEmitter.addListener('dataReceived',
+      (data) => {
+        if (this.onDataReceived) {
+          this.onDataReceived(data);
+        }
+      }
+    );
+
+    if (this.vadReceivedSubscription) this.vadReceivedSubscription.remove();
+    this.vadReceivedSubscription = NativeAppEventEmitter.addListener('vadReceived',
+      (vadResult) => {
+        if (this.onVadReceived) {
+          this.onVadReceived(vadResult);
+        }
+      }
+    );
+
     var defaultOptions = {
       SampleRate: 44100.0,
-      Channels: 2,
+      Channels: 1,
       AudioQuality: 'High',
       AudioEncoding: 'ima4',
-      OutputFormat: 'mpeg_4',
       MeteringEnabled: false,
-      MeasurementMode: false,
-      AudioEncodingBitRate: 32000,
-      IncludeBase64: false,
-      AudioSource: 0
+      AudioSource: 'DEFAULT',
+      // OutputFormat: 'mpeg_4',
+      // AudioEncodingBitRate: 32000
     };
 
     var recordingOptions = {...defaultOptions, ...options};
 
+    var defaultVadOptions = {
+      Sensitivity: 0,
+      Timeout: 7000,
+    }
+
+    var vadOptions = {...defaultVadOptions, ...vadOptions};
+
     if (Platform.OS === 'ios') {
-      AudioRecorderManager.prepareRecordingAtPath(
+      AudioRecorderManager.prepareStreamingAtPath(
         path,
+        bufferSize,
         recordingOptions.SampleRate,
         recordingOptions.Channels,
         recordingOptions.AudioQuality,
         recordingOptions.AudioEncoding,
         recordingOptions.MeteringEnabled,
-        recordingOptions.MeasurementMode,
-        recordingOptions.IncludeBase64
+        vadOptions.Sensitivity,
+        vadOptions.Timeout,
       );
     } else {
-      return AudioRecorderManager.prepareRecordingAtPath(path, recordingOptions);
+      return AudioRecorderManager.prepareStreamingAtPath(path, bufferSize, recordingOptions, vadOptions);
     }
   },
-  startRecording: function() {
-    return AudioRecorderManager.startRecording();
+  startStreaming: function() {
+    return AudioRecorderManager.startStreaming();
   },
-  pauseRecording: function() {
-    return AudioRecorderManager.pauseRecording();
+  stopStreaming: function() {
+    return AudioRecorderManager.stopStreaming();
   },
-  resumeRecording: function() {
-    return AudioRecorderManager.resumeRecording();
-  },
-  stopRecording: function() {
-    return AudioRecorderManager.stopRecording();
+  pauseStreaming: function() {
+    return AudioRecorderManager.pauseStreaming();
   },
   checkAuthorizationStatus: AudioRecorderManager.checkAuthorizationStatus,
-  requestAuthorization: () => {
-    if (Platform.OS === 'ios')
-      return AudioRecorderManager.requestAuthorization();
-    else
-      return new Promise((resolve, reject) => {
-        PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
-        ).then(result => {
-          if (result == PermissionsAndroid.RESULTS.GRANTED || result == true)
-            resolve(true);
-          else
-            resolve(false)
-        })
-      });
-  },
+  requestAuthorization: AudioRecorderManager.requestAuthorization,
   removeListeners: function() {
     if (this.progressSubscription) this.progressSubscription.remove();
     if (this.finishedSubscription) this.finishedSubscription.remove();
+    if (this.dataReceivedSubscription) this.dataReceivedSubscription.remove();
+    if (this.vadReceivedSubscription) this.vadReceivedSubscription.remove();
   },
 };
 
 let AudioUtils = {};
-let AudioSource = {};
 
 if (Platform.OS === 'ios') {
   AudioUtils = {
@@ -116,18 +123,6 @@ if (Platform.OS === 'ios') {
     MusicDirectoryPath: AudioRecorderManager.MusicDirectoryPath,
     DownloadsDirectoryPath: AudioRecorderManager.DownloadsDirectoryPath
   };
-  AudioSource = {
-    DEFAULT: 0,
-    MIC: 1,
-    VOICE_UPLINK: 2,
-    VOICE_DOWNLINK: 3,
-    VOICE_CALL: 4,
-    CAMCORDER: 5,
-    VOICE_RECOGNITION: 6,
-    VOICE_COMMUNICATION: 7,
-    REMOTE_SUBMIX: 8, // added in API 19
-    UNPROCESSED: 9, // added in API 24
-  };
 }
 
-module.exports = {AudioRecorder, AudioUtils, AudioSource};
+module.exports = {AudioRecorder, AudioUtils};
